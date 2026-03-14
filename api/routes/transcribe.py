@@ -4,6 +4,7 @@ import logging
 from typing import List
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from api.middleware.auth import require_api_key
 from api.models.schemas import (
@@ -115,9 +116,10 @@ async def transcribe(
         audio_bytes = await audio.read()
         filename = audio.filename or "audio.wav"
 
-        # Process audio (validate/convert format)
+        # Process audio (validate/convert format) - run in threadpool to avoid blocking
         try:
-            wav_bytes, _ = process_audio_upload(
+            wav_bytes, _ = await run_in_threadpool(
+                process_audio_upload,
                 audio_bytes, filename, settings.max_audio_duration
             )
         except AudioTooLongError as e:
@@ -125,8 +127,9 @@ async def transcribe(
         except AudioValidationError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
-        # Run transcription
-        result = asr_service.transcribe(
+        # Run transcription - run in threadpool to avoid blocking
+        result = await run_in_threadpool(
+            asr_service.transcribe,
             wav_bytes,
             beam_size=beam_size,
             repetition_penalty=repetition_penalty,
@@ -204,13 +207,14 @@ async def transcribe_batch(
         wav_bytes_list = []
         durations = []
 
-        # Process all uploaded files
+        # Process all uploaded files - run in threadpool to avoid blocking
         for audio in audios:
             audio_bytes = await audio.read()
             filename = audio.filename or "audio.wav"
 
             try:
-                wav_bytes, duration = process_audio_upload(
+                wav_bytes, duration = await run_in_threadpool(
+                    process_audio_upload,
                     audio_bytes, filename, settings.max_audio_duration
                 )
                 wav_bytes_list.append(wav_bytes)
@@ -220,8 +224,9 @@ async def transcribe_batch(
             except AudioValidationError as e:
                 raise HTTPException(status_code=400, detail=str(e))
 
-        # Run batch transcription
-        results = asr_service.transcribe_batch(
+        # Run batch transcription - run in threadpool to avoid blocking
+        results = await run_in_threadpool(
+            asr_service.transcribe_batch,
             wav_bytes_list,
             beam_size=beam_size,
             repetition_penalty=repetition_penalty,
