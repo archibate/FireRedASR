@@ -103,7 +103,7 @@ if [ ! -d "$MODEL_DIR" ]; then
 fi
 
 # Start uvicorn server
-exec uvicorn api.main:app \
+exec python -m uvicorn api.main:app \
     --host "$HOST" \
     --port "$PORT" \
     --workers "$WORKERS" \
