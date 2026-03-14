@@ -58,17 +58,22 @@ class LlmTokenizerWrapper:
         else:
             TEMPLATE = "{% for message in messages %}{{'<|im_start|>' + message['role'] + '\n' + message['content']}}{% if loop.last %}{{''}}{% else %}{{ '<|im_end|>\n' }}{% endif %}{% endfor %}"
         for i, msg in enumerate(messages):
-            texts.append(
-                tokenizer.apply_chat_template(
-                    msg,
-                    tokenize=True,
-                    chat_template=TEMPLATE,
-                    add_generation_prompt=False,
-                    padding="longest",
-                    max_length=max_len,
-                    truncation=True,
-                )
+            encoded = tokenizer.apply_chat_template(
+                msg,
+                tokenize=True,
+                chat_template=TEMPLATE,
+                add_generation_prompt=False,
+                padding="longest",
+                max_length=max_len,
+                truncation=True,
             )
+            # Handle different return types from apply_chat_template
+            if hasattr(encoded, 'input_ids'):
+                texts.append(encoded['input_ids'].tolist() if hasattr(encoded['input_ids'], 'tolist') else list(encoded['input_ids']))
+            elif isinstance(encoded, dict):
+                texts.append(encoded.get('input_ids', encoded))
+            else:
+                texts.append(list(encoded) if not isinstance(encoded, list) else encoded)
 
         # Padding texts
         max_len_texts = max([len(text) for text in texts])
