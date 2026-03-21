@@ -1,5 +1,6 @@
 """ASR Service - Singleton service for model management and inference."""
 
+import asyncio
 import logging
 import os
 import tempfile
@@ -22,6 +23,7 @@ class ASRService:
     _loaded: bool = False
     _loading: bool = False
     _error: Optional[str] = None
+    _inference_semaphore: Optional[asyncio.Semaphore] = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -85,6 +87,10 @@ class ASRService:
 
             elapsed = time.time() - start_time
             logger.info(f"Model loaded successfully in {elapsed:.2f}s")
+
+            # 初始化推理信号量，限制并发推理数量为 1
+            # LLM 的 generate() 不是线程安全的，必须串行执行
+            self._inference_semaphore = asyncio.Semaphore(1)
 
             self._loaded = True
             self._loading = False
@@ -173,7 +179,7 @@ class ASRService:
                 )
                 args["eos_penalty"] = eos_penalty or settings.default_eos_penalty
 
-            # Run transcription
+            # Run transcription (同步执行，由 _run_inference 控制并发)
             uttid = "audio"
             results = self._model.transcribe([uttid], [tmp_path], args)
 
@@ -191,6 +197,49 @@ class ASRService:
         finally:
             # Cleanup temp file
             Path(tmp_path).unlink(missing_ok=True)
+
+    async def transcribe_async(
+        self,
+        audio_bytes: bytes,
+        beam_size: Optional[int] = None,
+        repetition_penalty: Optional[float] = None,
+        decode_max_len: Optional[int] = None,
+        decode_min_len: Optional[int] = None,
+        temperature: Optional[float] = None,
+        llm_length_penalty: Optional[float] = None,
+        # AED-specific parameters
+        nbest: Optional[int] = None,
+        softmax_smoothing: Optional[float] = None,
+        aed_length_penalty: Optional[float] = None,
+        eos_penalty: Optional[float] = None,
+    ) -> Dict:
+        """
+        Async version of transcribe with concurrency control.
+
+        使用信号量限制并发推理数量，确保 LLM 的 generate() 不会并发执行。
+        """
+        if not self._loaded or self._model is None:
+            raise RuntimeError("Model not loaded")
+
+        if self._inference_semaphore is None:
+            raise RuntimeError("Inference semaphore not initialized")
+
+        async with self._inference_semaphore:
+            # 在线程池中执行同步推理，避免阻塞事件循环
+            return await asyncio.to_thread(
+                self.transcribe,
+                audio_bytes,
+                beam_size,
+                repetition_penalty,
+                decode_max_len,
+                decode_min_len,
+                temperature,
+                llm_length_penalty,
+                nbest,
+                softmax_smoothing,
+                aed_length_penalty,
+                eos_penalty,
+            )
 
     def transcribe_batch(
         self,
@@ -292,6 +341,46 @@ class ASRService:
             # Cleanup temp files
             for tmp_path in tmp_paths:
                 Path(tmp_path).unlink(missing_ok=True)
+
+    async def transcribe_batch_async(
+        self,
+        audio_bytes_list: List[bytes],
+        beam_size: Optional[int] = None,
+        repetition_penalty: Optional[float] = None,
+        decode_max_len: Optional[int] = None,
+        decode_min_len: Optional[int] = None,
+        temperature: Optional[float] = None,
+        llm_length_penalty: Optional[float] = None,
+        # AED-specific parameters
+        nbest: Optional[int] = None,
+        softmax_smoothing: Optional[float] = None,
+        aed_length_penalty: Optional[float] = None,
+        eos_penalty: Optional[float] = None,
+    ) -> List[Dict]:
+        """
+        Async version of transcribe_batch with concurrency control.
+        """
+        if not self._loaded or self._model is None:
+            raise RuntimeError("Model not loaded")
+
+        if self._inference_semaphore is None:
+            raise RuntimeError("Inference semaphore not initialized")
+
+        async with self._inference_semaphore:
+            return await asyncio.to_thread(
+                self.transcribe_batch,
+                audio_bytes_list,
+                beam_size,
+                repetition_penalty,
+                decode_max_len,
+                decode_min_len,
+                temperature,
+                llm_length_penalty,
+                nbest,
+                softmax_smoothing,
+                aed_length_penalty,
+                eos_penalty,
+            )
 
 
 # Global service instance

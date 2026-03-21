@@ -127,9 +127,8 @@ async def transcribe(
         except AudioValidationError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
-        # Run transcription - run in threadpool to avoid blocking
-        result = await run_in_threadpool(
-            asr_service.transcribe,
+        # Run transcription with concurrency control
+        result = await asr_service.transcribe_async(
             wav_bytes,
             beam_size=beam_size,
             repetition_penalty=repetition_penalty,
@@ -224,9 +223,8 @@ async def transcribe_batch(
             except AudioValidationError as e:
                 raise HTTPException(status_code=400, detail=str(e))
 
-        # Run batch transcription - run in threadpool to avoid blocking
-        results = await run_in_threadpool(
-            asr_service.transcribe_batch,
+        # Run batch transcription with concurrency control
+        results = await asr_service.transcribe_batch_async(
             wav_bytes_list,
             beam_size=beam_size,
             repetition_penalty=repetition_penalty,

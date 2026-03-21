@@ -43,11 +43,10 @@ class FireRedAsr:
     def transcribe(self, batch_uttid, batch_wav_path, args={}):
         feats, lengths, durs = self.feat_extractor(batch_wav_path)
         total_dur = sum(durs)
+        # 只移动输入张量到目标设备，模型已在加载时放置到正确设备
+        # 避免每次推理时移动模型导致的并发竞争和 CUDA 状态问题
         if args.get("use_gpu", False):
             feats, lengths = feats.cuda(), lengths.cuda()
-            self.model.cuda()
-        else:
-            self.model.cpu()
 
         if self.asr_type == "aed":
             start_time = time.time()
